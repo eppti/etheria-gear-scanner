@@ -24,10 +24,11 @@ and import.
 ## Usage
 
 ```bash
-# 1) list your network interfaces and note the number of your active connection
+# 1) list your network interfaces and note the number for your active connection
 python etheria_gear.py interfaces
 
 # 2) capture packets while logging in to the game (gear is sent at login)
+#    Replace 5 with the interface number from step 1.
 python etheria_gear.py capture --iface 5 --seconds 180 --out mygear.pcap
 
 # 3) decode and server-sign the capture
@@ -76,6 +77,11 @@ python etheria_gear.py parse mygear.pcap --out mygear.json --sign --otp ABCD1234
 ### Tips
 - ⏱️ **Be logging in while it captures.** Gear is only sent at login — opening the gear
   screen mid-session does *not* re-send it. Start the command first, then log in.
+- 🌐 **Pick the interface for how the game device connects.** The first command lists
+  numbered interfaces. Use the number for `Ethernet` on a wired PC, `WLAN`/`Wi-Fi` on a
+  wireless PC, or `bridge100` when your phone is connected through your computer.
+- 📈 **Check the decoded piece count.** After the parse command, the printed `Decoded N pieces`
+  number should be above zero and should increase when you capture a login with more gear.
 - 🔐 **Permission error when capturing?** Run your terminal as Administrator (Windows can
   install Npcap admin-only), or reinstall Npcap with the "non-admin" option.
 - 🌐 **Wrong interface?** If the JSON comes out empty, you picked the wrong adapter — try
