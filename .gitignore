@@ -1,0 +1,19 @@
+# Never commit personal captures or decoded gear data
+*.pcap
+*.pcapng
+mygear*.json
+gear*.json
+etheria_gear.json
+etheria_tmp.pcap
+*.csv
+
+# but keep the project's own legend
+!legend.json
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+.idea/
+.vscode/

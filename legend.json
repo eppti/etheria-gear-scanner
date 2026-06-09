@@ -1,0 +1,47 @@
+{
+  "_doc": "Etheria Restart gear decoding maps. See LEGEND.md for full explanation.",
+  "stat_encoding": {
+    "field4": "5 varints per piece (1 main + 4 subs)",
+    "per_varint": {
+      "high": "varint // 4096   (scaled value)",
+      "marker": "varint % 4096   (stat type + roll count)",
+      "base": "nearest base marker <= marker (within +0..6)",
+      "rolls": "marker - base   (0-4; 4 = maxed/yellow)",
+      "value": "high / scale   (scale per stat below)"
+    }
+  },
+  "stat_markers": {
+    "64":  {"stat": "HP",        "scale": 100,  "main_cap": 3300, "flat": true},
+    "128": {"stat": "ATK",       "scale": 100,  "main_cap": 330,  "flat": true},
+    "192": {"stat": "DEF",       "scale": 100,  "main_cap": 250,  "flat": true},
+    "256": {"stat": "SPD",       "scale": 100,  "main_cap": null, "note": "never a main stat"},
+    "48":  {"stat": "HP%",       "scale": 10,   "main_cap": 50},
+    "112": {"stat": "ATK%",      "scale": 10,   "main_cap": 50},
+    "176": {"stat": "DEF%",      "scale": 10,   "main_cap": 50},
+    "304": {"stat": "CRIT Rate", "scale": 10,   "main_cap": 40},
+    "352": {"stat": "CRIT DMG",  "scale": 10,   "main_cap": 60},
+    "400": {"stat": "Eff ACC",   "scale": 10,   "main_cap": 60},
+    "448": {"stat": "Eff RES",   "scale": 10,   "main_cap": 60}
+  },
+  "f5": {
+    "matrix_id":    "f5 & 0xFFFF",
+    "matrix_slots": "(f5 >> 16) & 0xFFFF   (2 or 3)"
+  },
+  "matrices": {
+    "1": "Onslaught", "2": "Wellspring", "3": "Unbreakable", "4": "Swiftrush",
+    "5": "Bulwark", "6": "Battlewill", "8": "Bramble", "10": "Cure",
+    "12": "Strive", "15": "Harvest", "17": "Fury", "30": "Momentum",
+    "32": "Bloodbath", "33": "Timeweave", "34": "Keeneye",
+    "61": "Furyedge", "62": "Etherplague", "63": "Colossguard",
+    "64": "Swiftraid", "65": "Swiftsmite", "66": "Evolguard"
+  },
+  "inferno_matrices": [61, 62, 63, 64, 65, 66],
+  "slots": {
+    "left_1_3": "fixed flat main: slot1=ATK, slot2=HP, slot3=DEF (ring)",
+    "right_4_6": "rolled main (%/CRIT/Eff; SPD never a main)"
+  },
+  "piece_fields": {
+    "1": "instance_id", "2": "template_id", "3": "level(0-15)",
+    "4": "stats (5 varints)", "5": "f5 (matrix+slots)", "6": "lock/equip flag(0/1)"
+  }
+}
