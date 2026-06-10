@@ -26,6 +26,16 @@ and import.
 Download `etheria_gear.exe` from the latest GitHub Release and double-click it to
 start the wizard.
 
+For verification, download `etheria_gear.exe.sha256` from the same release and run this
+in PowerShell from the download folder:
+
+```powershell
+Get-FileHash .\etheria_gear.exe -Algorithm SHA256
+Get-Content .\etheria_gear.exe.sha256
+```
+
+The hash printed by `Get-FileHash` should match the hash in `etheria_gear.exe.sha256`.
+
 The wizard will:
 
 1. List your network interfaces.
