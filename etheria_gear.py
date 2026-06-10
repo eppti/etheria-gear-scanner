@@ -100,8 +100,10 @@ STAT_SLUGS = {
 
 SET_SLUGS = {name: name.lower().replace(" ", "-") for name in MATRICES.values()}
 
-# Derived from observed Etheria template ids. Unknown templates fall back to main-stat
-# inference, which is safe for normal left-side pieces and conservative for specials.
+# Derived from observed Etheria template ids. Template ids are emitted as odd/even
+# pairs for the same gear slot; some captures only observed one side of a pair.
+# Unknown templates fall back to main-stat inference, which is safe for normal
+# left-side pieces and conservative for specials.
 TEMPLATE_GEAR_TYPES = {
     15012: "atk", 15032: "hp", 15052: "def", 15071: "special", 15072: "special",
     15091: "atk", 15092: "atk", 15111: "hp", 15112: "hp", 15132: "def",
@@ -294,6 +296,10 @@ def bankers_round(value):
 def gear_type_for(template_id, main_stat):
     if template_id in TEMPLATE_GEAR_TYPES:
         return TEMPLATE_GEAR_TYPES[template_id]
+    if isinstance(template_id, int):
+        paired_template_id = template_id + 1 if template_id % 2 else template_id - 1
+        if paired_template_id in TEMPLATE_GEAR_TYPES:
+            return TEMPLATE_GEAR_TYPES[paired_template_id]
     return {"HP": "hp", "ATK": "atk", "DEF": "def"}.get(main_stat, "special")
 
 
