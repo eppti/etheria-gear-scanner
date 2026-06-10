@@ -21,34 +21,41 @@ and import.
 - **Wireshark** (provides `tshark`) — <https://www.wireshark.org/download.html>
   - On **Windows**, also install **Npcap** when the installer offers it (so capturing works).
 
-## Usage
+## Simple mode
+
+Download `etheria_gear.exe` from the latest GitHub Release and double-click it to
+start the wizard.
+
+The wizard will:
+
+1. List your network interfaces.
+2. Ask which interface to capture from.
+3. Capture packets while you log in to Etheria Restart.
+4. Decode and sign the capture.
+5. Save `mygear.json`.
+
+Paste `mygear.json` into Etheria Optimizer's **Import gear** modal. The web app
+verifies the server signature and validates the decoded gear before uploading it.
+
+<details>
+<summary>Advanced CLI mode</summary>
 
 ```bash
-# 1) list your network interfaces and note the number for your active connection
+# List network interfaces and note the number for your active connection.
 python etheria_gear.py interfaces
 
-# 2) capture packets while logging in to the game (gear is sent at login)
-#    Replace 5 with the interface number from step 1.
+# Capture packets while logging in to the game.
+# Replace 5 with the interface number from the first command.
 python etheria_gear.py capture --iface 5 --seconds 180 --out mygear.pcap
 
-# 3) decode and server-sign the capture
+# Decode and server-sign the capture.
 python etheria_gear.py parse mygear.pcap --out mygear.json --sign
 ```
 
-That's it — paste `mygear.json` into Etheria Optimizer's **Import gear** modal. The web
-app verifies the server signature and validates the decoded gear before uploading it.
-
-The command shown in the web app is:
+You can also start the same interactive wizard from a terminal:
 
 ```bash
-python etheria_gear.py parse mygear.pcap --out mygear.json --sign
-```
-
-You can also do it in two steps:
-
-```bash
-python etheria_gear.py capture --iface 5 --seconds 180 --out mygear.pcap   # capture only
-python etheria_gear.py parse   mygear.pcap --out mygear.json --sign        # decode + sign
+python etheria_gear.py wizard
 ```
 
 Or capture, decode, and sign in one command:
@@ -56,6 +63,8 @@ Or capture, decode, and sign in one command:
 ```bash
 python etheria_gear.py grab --iface 5 --seconds 180 --out mygear.json --sign
 ```
+
+</details>
 
 ### Signing and verification
 

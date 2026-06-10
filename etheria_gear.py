@@ -14,6 +14,9 @@ REQUIREMENTS
   - Python 3.8+  (standard library only - no pip packages needed)
 
 HOW TO USE  (typical flow)
+  Double-click etheria_gear.exe, or run with no arguments, to start the wizard.
+
+  Advanced CLI:
   1) List your network interfaces:
         python etheria_gear.py interfaces
   2) Start a capture, then LOG IN to the game (gear is sent on login):
@@ -473,8 +476,28 @@ def write_json(pieces, out_path, raw=False, sign=False, api_base=DEFAULT_API_BAS
 # ---------------------------------------------------------------------------
 # live capture
 # ---------------------------------------------------------------------------
+def get_interfaces(tshark):
+    res = subprocess.run([tshark, "-D"], capture_output=True, text=True)
+    if res.returncode != 0:
+        sys.exit(f"ERROR listing interfaces:\n{res.stderr.strip()}")
+
+    interfaces = []
+    for idx, line in enumerate(res.stdout.splitlines(), start=1):
+        line = line.strip()
+        if not line:
+            continue
+        number, _, name = line.partition(".")
+        if number.isdigit() and name:
+            interfaces.append((number, name.strip()))
+        else:
+            interfaces.append((str(idx), line))
+    return interfaces
+
+
 def list_interfaces(tshark):
-    subprocess.run([tshark, "-D"])
+    print("Available Network Interfaces:")
+    for number, name in get_interfaces(tshark):
+        print(f"[{number}] {name}")
 
 
 def capture(tshark, iface, seconds, out_pcap):
@@ -486,18 +509,89 @@ def capture(tshark, iface, seconds, out_pcap):
     print("Capture finished.")
 
 
+def parse_capture(tshark, pcap, out_json, raw=False, sign=False,
+                  api_base=DEFAULT_API_BASE, otp_code=None):
+    pieces = extract_gear(tshark, pcap)
+    write_json(pieces, out_json, raw=raw, sign=sign, api_base=api_base, otp_code=otp_code)
+    return len(pieces)
+
+
+def prompt_enter_to_exit():
+    try:
+        input("Press Enter to exit...")
+    except EOFError:
+        pass
+
+
+def wizard(tshark_path=None):
+    try:
+        tshark = find_tshark(tshark_path)
+
+        interfaces = get_interfaces(tshark)
+        if not interfaces:
+            sys.exit("ERROR: no network interfaces found.")
+
+        print("Available Network Interfaces:")
+        valid = {number for number, _ in interfaces}
+        for number, name in interfaces:
+            print(f"[{number}] {name}")
+
+        while True:
+            iface = input("Select interface number: ").strip()
+            if iface in valid:
+                break
+            print("Please enter one of the listed interface numbers.")
+
+        raw_seconds = input("Enter capture duration in seconds [default 180]: ").strip()
+        if raw_seconds:
+            try:
+                seconds = int(raw_seconds)
+                if seconds <= 0:
+                    raise ValueError
+            except ValueError:
+                print("Invalid duration; using default 180 seconds.")
+                seconds = 180
+        else:
+            seconds = 180
+
+        pcap = "mygear.pcap"
+        out_json = "mygear.json"
+
+        print("Capturing packets... (do not close this window)")
+        capture(tshark, iface, seconds, pcap)
+
+        print("Parsing capture...")
+        print("Signing data...")
+        count = parse_capture(tshark, pcap, out_json, sign=True)
+        print(f"Done! Output saved to {out_json}")
+        print(f"Decoded {count} pieces.")
+    except KeyboardInterrupt:
+        print("\nCancelled.")
+    except SystemExit as exc:
+        if exc.code:
+            print(exc.code)
+    finally:
+        prompt_enter_to_exit()
+
+
 # ---------------------------------------------------------------------------
 # CLI
 # ---------------------------------------------------------------------------
 def main():
+    if len(sys.argv) == 1:
+        wizard()
+        return
+
     ap = argparse.ArgumentParser(
         description="Extract Etheria Restart gear into JSON from a packet capture.",
         formatter_class=argparse.RawDescriptionHelpFormatter,
-        epilog="Run with no command to see this help. See the file header for the full guide.")
+        epilog="Run with no command to start the wizard. See the file header for the full guide.")
     ap.add_argument("--tshark", help="path to tshark (auto-detected if omitted)")
     sub = ap.add_subparsers(dest="cmd")
 
     sub.add_parser("interfaces", help="list capture interfaces (pick a number for --iface)")
+
+    sub.add_parser("wizard", help="interactive capture + parse wizard")
 
     o = sub.add_parser("otp", help="request a one-time signing code from the server")
     o.add_argument("--api", default=DEFAULT_API_BASE, help=f"API base URL (default: {DEFAULT_API_BASE})")
@@ -525,8 +619,12 @@ def main():
 
     args = ap.parse_args()
     if not args.cmd:
-        ap.print_help()
+        wizard(args.tshark)
         return
+    if args.cmd == "wizard":
+        wizard(args.tshark)
+        return
+
     tshark = find_tshark(args.tshark)
 
     if args.cmd == "interfaces":
@@ -537,15 +635,15 @@ def main():
     elif args.cmd == "capture":
         capture(tshark, args.iface, args.seconds, args.out)
     elif args.cmd == "parse":
-        pieces = extract_gear(tshark, args.pcap)
-        write_json(pieces, args.out, raw=args.raw, sign=args.sign, api_base=args.api, otp_code=args.otp)
-        print(f"Decoded {len(pieces)} pieces -> {args.out}" + (" (signed)" if args.sign else ""))
+        count = parse_capture(tshark, args.pcap, args.out, raw=args.raw, sign=args.sign,
+                              api_base=args.api, otp_code=args.otp)
+        print(f"Decoded {count} pieces -> {args.out}" + (" (signed)" if args.sign else ""))
     elif args.cmd == "grab":
         tmp = "mygear.pcap"
         capture(tshark, args.iface, args.seconds, tmp)
-        pieces = extract_gear(tshark, tmp)
-        write_json(pieces, args.out, raw=args.raw, sign=args.sign, api_base=args.api, otp_code=args.otp)
-        print(f"Decoded {len(pieces)} pieces -> {args.out}" + (" (signed)" if args.sign else ""))
+        count = parse_capture(tshark, tmp, args.out, raw=args.raw, sign=args.sign,
+                              api_base=args.api, otp_code=args.otp)
+        print(f"Decoded {count} pieces -> {args.out}" + (" (signed)" if args.sign else ""))
 
 
 if __name__ == "__main__":
