@@ -516,10 +516,25 @@ def capture(tshark, iface, seconds, out_pcap):
 
 
 def parse_capture(tshark, pcap, out_json, raw=False, sign=False,
-                  api_base=DEFAULT_API_BASE, otp_code=None):
+                  api_base=DEFAULT_API_BASE, otp_code=None, only_level_15=False):
     pieces = extract_gear(tshark, pcap)
+    if only_level_15:
+        pieces = [piece for piece in pieces if piece.get("level") == 15]
     write_json(pieces, out_json, raw=raw, sign=sign, api_base=api_base, otp_code=otp_code)
     return len(pieces)
+
+
+def prompt_yes_no(question, default=False):
+    default_hint = "Y/n" if default else "y/N"
+    while True:
+        answer = input(f"{question} [{default_hint}]: ").strip().lower()
+        if not answer:
+            return default
+        if answer in ("y", "yes"):
+            return True
+        if answer in ("n", "no"):
+            return False
+        print("Please answer yes or no.")
 
 
 def prompt_enter_to_exit():
@@ -566,9 +581,15 @@ def wizard(tshark_path=None):
         print("Capturing packets... (do not close this window)")
         capture(tshark, iface, seconds, pcap)
 
+        only_level_15 = prompt_yes_no("Only scan +15 gear?", default=False)
+        print("A signature lets etheriaoptimizer.com validate the gear.")
+        print("It is entirely optional for uploading gear.")
+        sign = prompt_yes_no("Get signature for verified gear?", default=True)
+
         print("Parsing capture...")
-        print("Signing data...")
-        count = parse_capture(tshark, pcap, out_json, sign=True)
+        if sign:
+            print("Signing data...")
+        count = parse_capture(tshark, pcap, out_json, sign=sign, only_level_15=only_level_15)
         print(f"Done! Output saved to {out_json}")
         print(f"Decoded {count} pieces.")
     except KeyboardInterrupt:
