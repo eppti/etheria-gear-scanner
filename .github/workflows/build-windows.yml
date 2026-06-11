@@ -30,6 +30,11 @@ jobs:
         run: |
           pyinstaller --onefile etheria_gear.py --name etheria_gear --clean
 
+      - name: Smoke test EXE
+        run: |
+          .\dist\etheria_gear.exe --help
+          .\dist\etheria_gear.exe parse --help
+
       - name: Generate checksum
         run: |
           $hash = (Get-FileHash dist/etheria_gear.exe -Algorithm SHA256).Hash.ToLower()

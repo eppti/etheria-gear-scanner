@@ -232,6 +232,9 @@ def decode_stat(varint):
 def reassemble_server_payloads(tshark, pcap):
     """Use tshark to pull the TCP payloads sent BY the server (srcport 20001),
     reassembled per stream. Returns {stream_id: bytes}."""
+    if not os.path.exists(pcap):
+        sys.exit(f"ERROR: capture file not found: {pcap}")
+
     cmd = [tshark, "-r", pcap, "-T", "fields",
            "-e", "tcp.stream", "-e", "tcp.srcport", "-e", "tcp.len", "-e", "data.data",
            "-E", "separator=|"]
@@ -417,6 +420,12 @@ def post_json(url, payload):
     except urllib.error.HTTPError as e:
         detail = e.read().decode("utf-8", errors="replace")
         sys.exit(f"ERROR {e.code} from {url}: {detail}")
+    except urllib.error.URLError as e:
+        sys.exit(f"ERROR connecting to {url}: {e.reason}")
+    except TimeoutError:
+        sys.exit(f"ERROR connecting to {url}: timed out")
+    except json.JSONDecodeError as e:
+        sys.exit(f"ERROR: invalid JSON response from {url}: {e}")
 
 
 def request_otp(api_base):
@@ -511,12 +520,20 @@ def capture(tshark, iface, seconds, out_pcap):
     print("  >>> Open Etheria and LOG IN now (gear is sent on login). <<<")
     cmd = [tshark, "-i", str(iface), "-f", f"tcp port {SERVER_PORT}",
            "-a", f"duration:{seconds}", "-w", out_pcap]
-    subprocess.run(cmd)
+    res = subprocess.run(cmd)
+    if res.returncode != 0:
+        sys.exit(
+            "ERROR: tshark capture failed. On Windows, try running as Administrator "
+            "or reinstall Npcap with non-admin capture enabled."
+        )
     print("Capture finished.")
 
 
 def parse_capture(tshark, pcap, out_json, raw=False, sign=False,
                   api_base=DEFAULT_API_BASE, otp_code=None, only_level_15=False):
+    if not os.path.exists(pcap):
+        sys.exit(f"ERROR: capture file not found: {pcap}")
+
     pieces = extract_gear(tshark, pcap)
     if only_level_15:
         pieces = [piece for piece in pieces if piece.get("level") == 15]
