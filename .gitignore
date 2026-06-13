@@ -17,3 +17,8 @@ __pycache__/
 venv/
 .idea/
 .vscode/
+
+# Local signing key material
+*.pem
+*.der
+*.key

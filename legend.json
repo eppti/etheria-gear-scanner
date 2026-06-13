@@ -30,8 +30,10 @@
   "matrices": {
     "1": "Onslaught", "2": "Wellspring", "3": "Unbreakable", "4": "Swiftrush",
     "5": "Bulwark", "6": "Battlewill", "8": "Bramble", "10": "Cure",
-    "12": "Strive", "15": "Harvest", "17": "Fury", "30": "Momentum",
-    "32": "Bloodbath", "33": "Timeweave", "34": "Keeneye",
+    "12": "Strive", "15": "Harvest", "17": "Fury", "18": "Overflow",
+    "19": "Profanation", "20": "Virulent Toxin", "21": "Chasing Dawn",
+    "30": "Momentum", "32": "Bloodbath", "33": "Timeweave", "34": "Keeneye",
+    "39": "Unyielding Oath", "40": "Ebullition Strike",
     "61": "Furyedge", "62": "Etherplague", "63": "Colossguard",
     "64": "Swiftraid", "65": "Swiftsmite", "66": "Evolguard"
   },

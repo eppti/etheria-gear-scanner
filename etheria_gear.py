@@ -86,8 +86,9 @@ MAIN_CAP = {64: 3300, 128: 330, 192: 250, 48: 50, 112: 50, 176: 50,
 MATRICES = {
     1: "Onslaught", 2: "Wellspring", 3: "Unbreakable", 4: "Swiftrush",
     5: "Bulwark", 6: "Battlewill", 8: "Bramble", 10: "Cure", 12: "Strive",
-    15: "Harvest", 17: "Fury", 30: "Momentum", 32: "Bloodbath", 33: "Timeweave",
-    34: "Keeneye", 61: "Furyedge", 62: "Etherplague", 63: "Colossguard",
+    15: "Harvest", 17: "Fury", 18: "Overflow", 19: "Profanation", 20: "Virulent Toxin",
+    21: "Chasing Dawn", 30: "Momentum", 32: "Bloodbath", 33: "Timeweave", 34: "Keeneye",
+    39: "Unyielding Oath", 40: "Ebullition Strike", 61: "Furyedge", 62: "Etherplague", 63: "Colossguard",
     64: "Swiftraid", 65: "Swiftsmite", 66: "Evolguard",
 }
 
@@ -229,6 +230,35 @@ def decode_stat(varint):
 # ---------------------------------------------------------------------------
 # capture stream -> messages -> gear pieces
 # ---------------------------------------------------------------------------
+class ParseReport:
+    def __init__(self):
+        self.warnings = []
+        self.gear_messages = 0
+        self.skipped = 0
+
+    def warn(self, message):
+        self.warnings.append(message)
+        print(f"WARNING: {message}")
+
+    def skip(self, message):
+        self.warnings.append(message)
+        self.skipped += 1
+        print(f"WARNING: {message}")
+
+    def print_summary(self, decoded_count, filtered_count=0):
+        print(f"Gear inventory messages found: {self.gear_messages}")
+        print(f"Decoded pieces: {decoded_count}")
+        if filtered_count:
+            print(f"Filtered out {filtered_count} piece(s) below level 15.")
+        if self.skipped:
+            print(f"Skipped pieces: {self.skipped}")
+        if decoded_count == 0:
+            print(
+                "WARNING: no gear decoded. Log in during capture and pick the "
+                "correct network interface."
+            )
+
+
 def reassemble_server_payloads(tshark, pcap):
     """Use tshark to pull the TCP payloads sent BY the server (srcport 20001),
     reassembled per stream. Returns {stream_id: bytes}."""
@@ -241,6 +271,8 @@ def reassemble_server_payloads(tshark, pcap):
     res = subprocess.run(cmd, capture_output=True, text=True)
     if res.returncode != 0 and not res.stdout:
         sys.exit(f"ERROR running tshark:\n{res.stderr.strip()}")
+    if res.returncode != 0 and res.stderr.strip():
+        print(f"WARNING: tshark exited {res.returncode}: {res.stderr.strip()}")
     streams = defaultdict(bytes)
     for line in res.stdout.splitlines():
         parts = line.strip().split("|")
@@ -253,6 +285,8 @@ def reassemble_server_payloads(tshark, pcap):
             streams[sid] += bytes.fromhex(hexdata.replace(":", ""))
         except ValueError:
             continue
+    if not streams:
+        print("WARNING: no TCP payloads found on port 20001 in capture.")
     return streams
 
 
@@ -333,32 +367,54 @@ def bundle_piece(piece):
     }
 
 
-def extract_gear(tshark, pcap):
+def extract_gear(tshark, pcap, report=None):
     """Decode all gear pieces from the capture. Returns a list of piece dicts."""
     pieces, seen = [], set()
     for data in reassemble_server_payloads(tshark, pcap).values():
         for msg_type, payload in split_messages(data):
             if msg_type != GEAR_MSG:
                 continue
+            if report:
+                report.gear_messages += 1
             for field, kind, raw in decode_fields(payload):
                 if field != 1 or kind != "raw":      # repeated field[1] = one piece
                     continue
                 f = decode_fields(raw)
                 get = lambda n, k: next((v for a, b, v in f if a == n and b == k), None)
+                inst = get(1, "int")
+                label = f"instance {inst}" if inst is not None else "unknown instance"
+
                 stat_raw = get(4, "raw")
                 if not stat_raw:
+                    if report:
+                        report.skip(f"{label}: missing stat data (field 4)")
                     continue
                 varints = varint_list(stat_raw)
                 if len(varints) != 5:
+                    if report:
+                        report.skip(
+                            f"{label}: expected 5 stats, got {len(varints)} "
+                            f"(wire: {varints})"
+                        )
                     continue
                 stats = [s for s in (decode_stat(v) for v in varints) if s]
                 if len(stats) != 5:
+                    if report:
+                        report.skip(
+                            f"{label}: could not decode all stats "
+                            f"(wire: {varints})"
+                        )
                     continue
-                inst = get(1, "int")
                 if inst in seen:
+                    if report:
+                        report.skip(f"{label}: duplicate piece skipped")
                     continue
                 seen.add(inst)
                 f5 = get(5, "int") or 0
+                matrix_id = f5 & 0xFFFF
+                matrix = MATRICES.get(matrix_id)
+                if report and matrix is None and matrix_id != 0:
+                    report.warn(f"{label}: unknown matrix id {matrix_id}")
                 main = pick_main(stats)
                 subs = [s for s in stats if s is not main]
                 clean = lambda s: {"stat": s["stat"], "value": s["value"], "rolls": s["rolls"]}
@@ -368,8 +424,8 @@ def extract_gear(tshark, pcap):
                     "level": get(3, "int"),
                     "locked": (get(6, "int") or 0) == 1,
                     "matrix_slots": (f5 >> 16) & 0xFFFF,
-                    "matrix_id": f5 & 0xFFFF,
-                    "matrix": MATRICES.get(f5 & 0xFFFF),
+                    "matrix_id": matrix_id,
+                    "matrix": matrix,
                     "main": {"stat": main["stat"], "value": main["value"]},
                     "subs": [clean(s) for s in subs],
                     "statWire": varints,
@@ -534,9 +590,14 @@ def parse_capture(tshark, pcap, out_json, raw=False, sign=False,
     if not os.path.exists(pcap):
         sys.exit(f"ERROR: capture file not found: {pcap}")
 
-    pieces = extract_gear(tshark, pcap)
+    report = ParseReport()
+    pieces = extract_gear(tshark, pcap, report)
+    filtered_count = 0
     if only_level_15:
+        before = len(pieces)
         pieces = [piece for piece in pieces if piece.get("level") == 15]
+        filtered_count = before - len(pieces)
+    report.print_summary(len(pieces), filtered_count=filtered_count)
     write_json(pieces, out_json, raw=raw, sign=sign, api_base=api_base, otp_code=otp_code)
     return len(pieces)
 

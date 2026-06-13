@@ -95,19 +95,24 @@ matrix_id    = f5 & 0xFFFF        (low 16 bits)
 matrix_slots = (f5 >> 16) & 0xFFFF  (high 16 bits)  -> 2 or 3 (the "2 or 3 matrix")
 ```
 
-### Matrix id → name (all 21)
+### Matrix id → name
 | id | matrix | | id | matrix |
 |----|--------|--|----|--------|
-| 1 | Onslaught | | 17 | Fury |
-| 2 | Wellspring | | 30 | Momentum |
-| 3 | Unbreakable | | 32 | Bloodbath |
-| 4 | Swiftrush | | 33 | Timeweave |
-| 5 | Bulwark | | 34 | Keeneye |
-| 6 | Battlewill | | 61 | Furyedge 🔥 |
-| 8 | Bramble | | 62 | Etherplague 🔥 |
-| 10 | Cure | | 63 | Colossguard 🔥 |
-| 12 | Strive | | 64 | Swiftraid 🔥 |
-| 15 | Harvest | | 65 | Swiftsmite 🔥 |
+| 1 | Onslaught | | 18 | Overflow |
+| 2 | Wellspring | | 19 | Profanation |
+| 3 | Unbreakable | | 20 | Virulent Toxin |
+| 4 | Swiftrush | | 21 | Chasing Dawn |
+| 5 | Bulwark | | 30 | Momentum |
+| 6 | Battlewill | | 32 | Bloodbath |
+| 8 | Bramble | | 33 | Timeweave |
+| 10 | Cure | | 34 | Keeneye |
+| 12 | Strive | | 39 | Unyielding Oath |
+| 15 | Harvest | | 40 | Ebullition Strike |
+| 17 | Fury | | 61 | Furyedge 🔥 |
+| | | | 62 | Etherplague 🔥 |
+| | | | 63 | Colossguard 🔥 |
+| | | | 64 | Swiftraid 🔥 |
+| | | | 65 | Swiftsmite 🔥 |
 | | | | 66 | Evolguard 🔥 |
 
 🔥 = the 6 INFERNO-only matrices (ids 61–66). Matrix list in-game is shown in this id order.
