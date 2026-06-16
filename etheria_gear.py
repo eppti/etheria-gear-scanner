@@ -304,17 +304,129 @@ def split_messages(data):
     return out
 
 
-def pick_main(stats):
+FLAT_MAIN_STATS = {"ATK", "HP", "DEF"}
+RIGHT_MAIN_STATS = {"HP%", "ATK%", "DEF%", "CRIT Rate", "CRIT DMG", "Eff ACC", "Eff RES"}
+
+
+def gear_type_from_template(template_id, inferred=None):
+    if template_id in TEMPLATE_GEAR_TYPES:
+        return TEMPLATE_GEAR_TYPES[template_id]
+    if isinstance(template_id, int):
+        paired_template_id = template_id + 1 if template_id % 2 else template_id - 1
+        if paired_template_id in TEMPLATE_GEAR_TYPES:
+            return TEMPLATE_GEAR_TYPES[paired_template_id]
+    if inferred and template_id in inferred:
+        return inferred[template_id]
+    return None
+
+
+def infer_template_gear_types(pieces):
+    """Infer slot type for unknown templates from mains seen in this capture."""
+    by_template = defaultdict(set)
+    for piece in pieces:
+        by_template[piece["template"]].add(piece["main"]["stat"])
+
+    inferred = {}
+    for template_id, mains in by_template.items():
+        if gear_type_from_template(template_id):
+            continue
+        flats = mains & FLAT_MAIN_STATS
+        if mains & RIGHT_MAIN_STATS or len(flats) > 1:
+            inferred[template_id] = "special"
+        elif flats == {"ATK"}:
+            inferred[template_id] = "atk"
+        elif flats == {"HP"}:
+            inferred[template_id] = "hp"
+        elif flats == {"DEF"}:
+            inferred[template_id] = "def"
+    return inferred
+
+
+def gear_type_for(template_id, main_stat, inferred=None):
+    gt = gear_type_from_template(template_id, inferred)
+    if gt:
+        return gt
+    return {"HP": "hp", "ATK": "atk", "DEF": "def"}.get(main_stat, "special")
+
+
+def attach_gear_types(pieces):
+    inferred = infer_template_gear_types(pieces)
+    for piece in pieces:
+        piece["gear_type"] = gear_type_for(
+            piece["template"], piece["main"]["stat"], inferred
+        )
+    return pieces
+
+
+FLAT_MAIN_BY_TYPE = {"atk": "ATK", "hp": "HP", "def": "DEF"}
+
+
+def expected_mythic_main_value(stat_name, level):
+    """Return the expected mythic main-stat value at this gear level, if known."""
+    if not isinstance(level, int) or level < 1:
+        return None
+    additional_levels = level - 1
+    if stat_name == "HP":
+        return 500 + 200 * additional_levels
+    if stat_name == "ATK":
+        return 50 + 20 * additional_levels
+    if stat_name == "DEF":
+        return 40 + 15 * additional_levels
+    if stat_name in {"HP%", "ATK%", "DEF%"}:
+        return 15 + 2.5 * additional_levels
+    if stat_name == "CRIT Rate":
+        return 12 + 2 * additional_levels
+    if stat_name in {"CRIT DMG", "Eff ACC", "Eff RES"}:
+        return 18 + 3 * additional_levels
+    return None
+
+
+def main_value_matches(stat, level):
+    expected = expected_mythic_main_value(stat["stat"], level)
+    if expected is None or stat["rolls"] != 0:
+        return False
+    return abs(stat["value"] - expected) < 0.001
+
+
+def pick_main_by_value(stats, level):
+    """Pick a mythic main by exact raw value rules, when there is a unique match."""
+    matches = [s for s in stats if main_value_matches(s, level)]
+    return matches[0] if len(matches) == 1 else None
+
+
+def pick_main_by_cap(stats, candidates=None):
     """Choose the main stat = the one closest to its cap (SPD never main)."""
+    if candidates is None:
+        candidates = stats
     best, best_ratio = None, -1.0
-    for s in stats:
+    for s in candidates:
         cap = MAIN_CAP.get(s["_base"])
         if cap is None:
             continue
         ratio = s["value"] / cap
         if ratio > best_ratio:
             best_ratio, best = ratio, s
-    return best or stats[0]
+    return best or (candidates[0] if candidates else stats[0])
+
+
+def pick_main(stats, template_id=None, level=None):
+    """Pick main stat from exact mythic values first, then conservative fallbacks."""
+    value_main = pick_main_by_value(stats, level)
+    if value_main:
+        value_main["_main_reason"] = "mythic_value"
+        return value_main
+
+    gt = gear_type_from_template(template_id)
+    if gt in FLAT_MAIN_BY_TYPE:
+        want = FLAT_MAIN_BY_TYPE[gt]
+        for s in stats:
+            if s["stat"] == want:
+                s["_main_reason"] = "template_flat"
+                return s
+    zero_roll_candidates = [s for s in stats if s["rolls"] == 0]
+    main = pick_main_by_cap(stats, zero_roll_candidates or stats)
+    main["_main_reason"] = "fallback_cap"
+    return main
 
 
 def bankers_round(value):
@@ -328,16 +440,6 @@ def bankers_round(value):
     if frac > 0.5:
         return sign * (floor + 1)
     return sign * (floor if floor % 2 == 0 else floor + 1)
-
-
-def gear_type_for(template_id, main_stat):
-    if template_id in TEMPLATE_GEAR_TYPES:
-        return TEMPLATE_GEAR_TYPES[template_id]
-    if isinstance(template_id, int):
-        paired_template_id = template_id + 1 if template_id % 2 else template_id - 1
-        if paired_template_id in TEMPLATE_GEAR_TYPES:
-            return TEMPLATE_GEAR_TYPES[paired_template_id]
-    return {"HP": "hp", "ATK": "atk", "DEF": "def"}.get(main_stat, "special")
 
 
 def clean_stat(stat):
@@ -356,7 +458,9 @@ def bundle_piece(piece):
         "setId": SET_SLUGS.get(piece["matrix"]),
         "matrixId": piece["matrix_id"],
         "matrixLevel": piece["matrix_slots"],
-        "gearType": gear_type_for(piece["template"], piece["main"]["stat"]),
+        "gearType": piece.get("gear_type") or gear_type_for(
+            piece["template"], piece["main"]["stat"]
+        ),
         "mainStat": STAT_SLUGS[piece["main"]["stat"]],
         "mainStatValue": piece["main"]["value"],
         "mainStatValueRaw": piece["main"]["value"],
@@ -415,13 +519,20 @@ def extract_gear(tshark, pcap, report=None):
                 matrix = MATRICES.get(matrix_id)
                 if report and matrix is None and matrix_id != 0:
                     report.warn(f"{label}: unknown matrix id {matrix_id}")
-                main = pick_main(stats)
+                template = get(2, "int")
+                level = get(3, "int")
+                main = pick_main(stats, template, level)
+                if report and main.get("_main_reason") == "fallback_cap" and level == 15:
+                    report.warn(
+                        f"{label}: main stat fell back to cap heuristic "
+                        f"(template {template}, wire: {varints})"
+                    )
                 subs = [s for s in stats if s is not main]
                 clean = lambda s: {"stat": s["stat"], "value": s["value"], "rolls": s["rolls"]}
                 pieces.append({
                     "instance": inst,
-                    "template": get(2, "int"),
-                    "level": get(3, "int"),
+                    "template": template,
+                    "level": level,
                     "locked": (get(6, "int") or 0) == 1,
                     "matrix_slots": (f5 >> 16) & 0xFFFF,
                     "matrix_id": matrix_id,
@@ -430,6 +541,7 @@ def extract_gear(tshark, pcap, report=None):
                     "subs": [clean(s) for s in subs],
                     "statWire": varints,
                 })
+    attach_gear_types(pieces)
     return pieces
 
 
