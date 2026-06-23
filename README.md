@@ -135,16 +135,13 @@ Administrator**, `cd` back to the folder, and try again. Or reinstall Npcap with
 ##### Step 8 — Decode the capture to JSON
 
 ```powershell
-python etheria_gear.py parse mygear.pcap --out mygear.json --sign
+python etheria_gear.py parse mygear.pcap --out mygear.json
 ```
-
-Add `--sign` so Etheria Optimizer can verify the export (recommended). Signing is optional
-for uploading, but the optimizer can validate signed gear more reliably.
 
 When it finishes, check the last line:
 
 ```text
-Decoded 5865 pieces -> mygear.json (signed)
+Decoded 5865 pieces -> mygear.json
 ```
 
 **If it says `Decoded 0 pieces`, something went wrong** — usually the wrong interface in step 6,
@@ -272,7 +269,7 @@ Start this command **first**, then open Etheria Restart and **log in**. Wait unt
 ##### Step 8 — Decode the capture to JSON
 
 ```bash
-python3 etheria_gear.py parse mygear.pcap --out mygear.json --sign
+python3 etheria_gear.py parse mygear.pcap --out mygear.json
 ```
 
 Check the last line — **`Decoded 0 pieces` means something went wrong**. Re-run step 5 with a
@@ -305,8 +302,8 @@ python etheria_gear.py interfaces
 # 2) Capture while logging in (~3 min)
 python etheria_gear.py capture --iface 5 --seconds 180 --out mygear.pcap
 
-# 3) Decode + sign
-python etheria_gear.py parse mygear.pcap --out mygear.json --sign
+# 3) Decode to JSON
+python etheria_gear.py parse mygear.pcap --out mygear.json
 ```
 
 <details>
@@ -320,32 +317,13 @@ python etheria_gear.py
 python etheria_gear.py wizard
 ```
 
-**Capture + decode + sign in one command:**
+**Capture + decode in one command:**
 
 ```bash
-python etheria_gear.py grab --iface 5 --seconds 180 --out mygear.json --sign
+python etheria_gear.py grab --iface 5 --seconds 180 --out mygear.json
 ```
 
 </details>
-
----
-
-## Signing and verification
-
-`--sign` asks `https://api.etheriaoptimizer.com` to sign the export hash. The scanner
-does **not** upload your full gear bundle while signing; it sends a hash plus scanner
-version, receives an Ed25519 signature, and writes that signature into `mygear.json`.
-
-The signing service may issue a short-lived one-time code automatically. That OTP is for
-rate-limiting signing requests; the actual authenticity check is the Ed25519 signature
-verified by the web app.
-
-To request a signing code yourself:
-
-```bash
-python etheria_gear.py otp
-python etheria_gear.py parse mygear.pcap --out mygear.json --sign --otp ABCD1234
-```
 
 ---
 
@@ -353,7 +331,7 @@ python etheria_gear.py parse mygear.pcap --out mygear.json --sign --otp ABCD1234
 
 - **Windows blocked or deleted the `.exe`** — use **Option A (Python)** in the Windows
   section instead. The `.exe` is built by GitHub Actions from the public source; SmartScreen
-  often flags unsigned PyInstaller builds even when the checksum matches.
+  often blocks PyInstaller builds even when the checksum matches.
 - **0 pieces decoded** — wrong network interface, or you did not log in during capture. Re-run
   `interfaces` and try another number.
 - **Permission error when capturing (Windows)** — run the terminal as Administrator, or
@@ -372,9 +350,6 @@ python etheria_gear.py parse mygear.pcap --out mygear.json --sign --otp ABCD1234
   "v": 1,
   "scannerVersion": "1.0.0",
   "pieceCount": 5865,
-  "hash": "64-character export hash",
-  "signature": "base64 Ed25519 signature",
-  "signedAt": 1760000000000,
   "pieces": [
     {
       "instanceId": 115088,
@@ -403,9 +378,7 @@ python etheria_gear.py parse mygear.pcap --out mygear.json --sign --otp ABCD1234
 - `valueRaw` is the **true** number — the game UI rounds it (28.8 shows as 29).
 - `value` is banker's-rounded for app compatibility.
 - `rolls` = how many times that substat was upgraded. Unrolled substats have `rolls: 0`.
-- `statWire` is the 5 raw stat varints from the packet. Other apps can ignore it; verifiers
-  can use it to confirm the readable stats match the captured wire data.
-- `hash`, `signature`, and `signedAt` are present when you use `--sign`.
+- `statWire` is the 5 raw stat varints from the packet. Other apps can ignore it.
 
 ---
 
@@ -423,8 +396,8 @@ stat marker → name table with scales, matrix ids, slot rules, worked examples)
   every player** — they're the game's network protocol. Only your tshark path (auto-detected)
   and capture interface (a CLI flag) are machine-specific.
 - It captures your full inventory as the game sends it at login.
-- The scanner does not validate game balance rules. Etheria Optimizer validates uploaded
-  gear during import.
+- The scanner does not validate game balance rules. Etheria Optimizer applies its own
+  import rules when you paste JSON into the web app.
 - Import by pasting JSON into the web app.
 
 ---

@@ -18,7 +18,7 @@ venv/
 .idea/
 .vscode/
 
-# Local signing key material
+# Local key material
 *.pem
 *.der
 *.key

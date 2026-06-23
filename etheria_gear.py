@@ -22,9 +22,8 @@ HOW TO USE  (typical flow)
   2) Start a capture, then LOG IN to the game (gear is sent on login):
         python etheria_gear.py capture --iface 5 --seconds 120 --out mygear.pcap
      (open Etheria and log in while it runs; it stops after --seconds)
-  3) Decode and sign the capture (OTP only rate-limits signing; security is Ed25519):
-        python etheria_gear.py parse mygear.pcap --out mygear.json --sign
-  4) Paste mygear.json into the Etheria Optimizer webapp Import gear modal.
+  3) Decode the capture to JSON:
+        python etheria_gear.py parse mygear.pcap --out mygear.json
 
   Or do capture+parse in one go:
         python etheria_gear.py grab --iface 5 --seconds 120 --out mygear.json
@@ -38,26 +37,21 @@ NOTES
 
 import argparse
 import datetime as dt
-import hashlib
 import json
 import os
 import shutil
 import struct
 import subprocess
 import sys
-import urllib.error
-import urllib.request
 from collections import defaultdict
 
 # ---------------------------------------------------------------------------
 # Protocol constants (universal - same for all players)
 # ---------------------------------------------------------------------------
 SERVER_PORT = 20001          # game data port
-DEFAULT_API_BASE = "https://api.etheriaoptimizer.com"
 HEADER_SIZE = 12             # [4B flags][4B msg_type LE][4B payload_len LE]
 GEAR_MSG = 0x1133            # message type that carries the gear inventory
 SCANNER_VERSION = "1.0.0"
-SCANNER_USER_AGENT = f"EtheriaGearScanner/{SCANNER_VERSION}"
 
 # Stat type table: base marker -> (display name, divisor scale).
 # A stat's value = (varint // 4096) / scale.  The marker (varint % 4096) identifies
@@ -545,84 +539,6 @@ def extract_gear(tshark, pcap, report=None):
     return pieces
 
 
-def canonical_json(value):
-    if value is None or isinstance(value, (bool, str, int)):
-        return json.dumps(value, separators=(",", ":"), ensure_ascii=False)
-    if isinstance(value, float):
-        if value.is_integer():
-            return str(int(value))
-        return json.dumps(value, separators=(",", ":"), ensure_ascii=False)
-    if isinstance(value, list):
-        return "[" + ",".join(canonical_json(v) for v in value) + "]"
-    if isinstance(value, dict):
-        return "{" + ",".join(
-            json.dumps(k, separators=(",", ":"), ensure_ascii=False) + ":" + canonical_json(value[k])
-            for k in sorted(value)
-        ) + "}"
-    return json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
-
-
-def build_sign_payload(bundle):
-    pieces = sorted(bundle["pieces"], key=lambda p: p["instanceId"])
-    return {
-        "scannedAt": bundle["scannedAt"],
-        "scannerVersion": bundle["scannerVersion"],
-        "pieces": pieces,
-    }
-
-
-def hash_export(bundle):
-    payload = build_sign_payload(bundle)
-    return hashlib.sha256(canonical_json(payload).encode("utf-8")).hexdigest()
-
-
-def post_json(url, payload):
-    data = json.dumps(payload).encode("utf-8")
-    req = urllib.request.Request(url, data=data, method="POST")
-    req.add_header("Content-Type", "application/json")
-    req.add_header("User-Agent", SCANNER_USER_AGENT)
-    try:
-        with urllib.request.urlopen(req, timeout=30) as res:
-            body = res.read().decode("utf-8")
-            return json.loads(body) if body else {}
-    except urllib.error.HTTPError as e:
-        detail = e.read().decode("utf-8", errors="replace")
-        sys.exit(f"ERROR {e.code} from {url}: {detail}")
-    except urllib.error.URLError as e:
-        sys.exit(f"ERROR connecting to {url}: {e.reason}")
-    except TimeoutError:
-        sys.exit(f"ERROR connecting to {url}: timed out")
-    except json.JSONDecodeError as e:
-        sys.exit(f"ERROR: invalid JSON response from {url}: {e}")
-
-
-def request_otp(api_base):
-    return post_json(f"{api_base.rstrip('/')}/gear-export/otp", {})
-
-
-def request_sign(api_base, export_hash, scanner_version, code):
-    return post_json(
-        f"{api_base.rstrip('/')}/gear-export/sign",
-        {"hash": export_hash, "scannerVersion": scanner_version, "code": code},
-    )
-
-
-def sign_bundle(bundle, api_base, code=None):
-    export_hash = hash_export(bundle)
-    if not code:
-        otp = request_otp(api_base)
-        code = otp.get("code")
-        if not code:
-            sys.exit("ERROR: failed to obtain signing OTP from server")
-        print(f"Signing OTP: {code} (valid for 5 minutes)")
-    result = request_sign(api_base, export_hash, bundle["scannerVersion"], code)
-    bundle["hash"] = export_hash
-    bundle["signature"] = result.get("signature")
-    bundle["signedAt"] = result.get("issuedAt")
-    if not bundle["signature"]:
-        sys.exit("ERROR: server did not return a signature")
-
-
 def make_bundle(pieces):
     return {
         "v": 1,
@@ -635,7 +551,7 @@ def make_bundle(pieces):
     }
 
 
-def write_json(pieces, out_path, raw=False, sign=False, api_base=DEFAULT_API_BASE, otp_code=None):
+def write_json(pieces, out_path, raw=False):
     if raw:
         export = {
             "_about": {
@@ -650,8 +566,6 @@ def write_json(pieces, out_path, raw=False, sign=False, api_base=DEFAULT_API_BAS
         }
     else:
         export = make_bundle(pieces)
-        if sign:
-            sign_bundle(export, api_base, code=otp_code)
     with open(out_path, "w", encoding="utf-8") as fh:
         json.dump(export, fh, indent=2, ensure_ascii=False)
 
@@ -697,8 +611,7 @@ def capture(tshark, iface, seconds, out_pcap):
     print("Capture finished.")
 
 
-def parse_capture(tshark, pcap, out_json, raw=False, sign=False,
-                  api_base=DEFAULT_API_BASE, otp_code=None, only_level_15=False):
+def parse_capture(tshark, pcap, out_json, raw=False, only_level_15=False):
     if not os.path.exists(pcap):
         sys.exit(f"ERROR: capture file not found: {pcap}")
 
@@ -710,7 +623,7 @@ def parse_capture(tshark, pcap, out_json, raw=False, sign=False,
         pieces = [piece for piece in pieces if piece.get("level") == 15]
         filtered_count = before - len(pieces)
     report.print_summary(len(pieces), filtered_count=filtered_count)
-    write_json(pieces, out_json, raw=raw, sign=sign, api_base=api_base, otp_code=otp_code)
+    write_json(pieces, out_json, raw=raw)
     return len(pieces)
 
 
@@ -772,14 +685,9 @@ def wizard(tshark_path=None):
         capture(tshark, iface, seconds, pcap)
 
         only_level_15 = prompt_yes_no("Only scan +15 gear?", default=False)
-        print("A signature lets etheriaoptimizer.com validate the gear.")
-        print("It is entirely optional for uploading gear.")
-        sign = prompt_yes_no("Get signature for verified gear?", default=True)
 
         print("Parsing capture...")
-        if sign:
-            print("Signing data...")
-        count = parse_capture(tshark, pcap, out_json, sign=sign, only_level_15=only_level_15)
+        count = parse_capture(tshark, pcap, out_json, only_level_15=only_level_15)
         print(f"Done! Output saved to {out_json}")
         print(f"Decoded {count} pieces.")
     except KeyboardInterrupt:
@@ -810,25 +718,17 @@ def main():
 
     sub.add_parser("wizard", help="interactive capture + parse wizard")
 
-    o = sub.add_parser("otp", help="request a one-time signing code from the server")
-    o.add_argument("--api", default=DEFAULT_API_BASE, help=f"API base URL (default: {DEFAULT_API_BASE})")
-
-    sign_opts = argparse.ArgumentParser(add_help=False)
-    sign_opts.add_argument("--sign", action="store_true", help="request server signature after export")
-    sign_opts.add_argument("--otp", help="signing OTP (omit to request a new one)")
-    sign_opts.add_argument("--api", default=DEFAULT_API_BASE, help=f"API base URL (default: {DEFAULT_API_BASE})")
-
     c = sub.add_parser("capture", help="capture traffic to a .pcap (log in while it runs)")
     c.add_argument("--iface", required=True, help="interface number/name from 'interfaces'")
     c.add_argument("--seconds", type=int, default=120, help="capture duration (default 120)")
     c.add_argument("--out", default="mygear.pcap", help="output .pcap (default mygear.pcap)")
 
-    p = sub.add_parser("parse", help="decode a .pcap into gear JSON", parents=[sign_opts])
+    p = sub.add_parser("parse", help="decode a .pcap into gear JSON")
     p.add_argument("pcap", help="the .pcap file to decode")
     p.add_argument("--out", default="etheria_gear.json", help="output JSON (default etheria_gear.json)")
     p.add_argument("--raw", action="store_true", help="write legacy debug JSON instead of bundle v1")
 
-    g = sub.add_parser("grab", help="capture + parse in one step", parents=[sign_opts])
+    g = sub.add_parser("grab", help="capture + parse in one step")
     g.add_argument("--iface", required=True, help="interface number/name")
     g.add_argument("--seconds", type=int, default=120)
     g.add_argument("--out", default="etheria_gear.json", help="output JSON")
@@ -846,21 +746,16 @@ def main():
 
     if args.cmd == "interfaces":
         list_interfaces(tshark)
-    elif args.cmd == "otp":
-        otp = request_otp(args.api)
-        print(json.dumps(otp, indent=2))
     elif args.cmd == "capture":
         capture(tshark, args.iface, args.seconds, args.out)
     elif args.cmd == "parse":
-        count = parse_capture(tshark, args.pcap, args.out, raw=args.raw, sign=args.sign,
-                              api_base=args.api, otp_code=args.otp)
-        print(f"Decoded {count} pieces -> {args.out}" + (" (signed)" if args.sign else ""))
+        count = parse_capture(tshark, args.pcap, args.out, raw=args.raw)
+        print(f"Decoded {count} pieces -> {args.out}")
     elif args.cmd == "grab":
         tmp = "mygear.pcap"
         capture(tshark, args.iface, args.seconds, tmp)
-        count = parse_capture(tshark, tmp, args.out, raw=args.raw, sign=args.sign,
-                              api_base=args.api, otp_code=args.otp)
-        print(f"Decoded {count} pieces -> {args.out}" + (" (signed)" if args.sign else ""))
+        count = parse_capture(tshark, tmp, args.out, raw=args.raw)
+        print(f"Decoded {count} pieces -> {args.out}")
 
 
 if __name__ == "__main__":
